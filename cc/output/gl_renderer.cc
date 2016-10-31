@@ -555,6 +555,10 @@ void GLRenderer::BeginDrawingFrame(DrawingFrame* frame) {
 void GLRenderer::DoDrawQuad(DrawingFrame* frame,
                             const DrawQuad* quad,
                             const gfx::QuadF* clip_region) {
+
+  // TODO(weiliangc): This name is such a hack but just to match the
+  // SkiaRenderer one.
+  TRACE_EVENT0("cc", "SkiaRenderer::DoDrawQuad");
   DCHECK(quad->rect.Contains(quad->visible_rect));
   if (quad->material != DrawQuad::TEXTURE_CONTENT) {
     FlushTextureQuadCache(SHARED_BINDING);

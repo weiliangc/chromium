@@ -8,10 +8,10 @@ from telemetry.timeline import tracing_config
 from telemetry.value import scalar
 
 
-class DrawProperties(legacy_page_test.LegacyPageTest):
+class RendererDrawTime(legacy_page_test.LegacyPageTest):
 
   def __init__(self):
-    super(DrawProperties, self).__init__()
+    super(RendererDrawTime, self).__init__()
 
   def CustomizeBrowserOptions(self, options):
     options.AppendExtraBrowserArgs([
@@ -21,8 +21,8 @@ class DrawProperties(legacy_page_test.LegacyPageTest):
   def WillNavigateToPage(self, page, tab):
     del page  # unused
     config = tracing_config.TracingConfig()
-    config.chrome_trace_config.category_filter.AddDisabledByDefault(
-        'disabled-by-default-cc.debug.cdp-perf')
+    config.chrome_trace_config.category_filter.AddIncludedCategory(
+        'cc')
     config.enable_chrome_trace = True
     tab.browser.platform.tracing_controller.StartTracing(config)
 
@@ -31,7 +31,7 @@ class DrawProperties(legacy_page_test.LegacyPageTest):
     event_durations = [d.duration for d in events]
     assert event_durations, 'Failed to find durations'
 
-    duration_sum = sum(event_durations)
+    duration_sum = sum(event_durations) * 1000
     duration_count = len(event_durations)
     duration_avg = duration_sum / duration_count
     return duration_avg
@@ -41,13 +41,30 @@ class DrawProperties(legacy_page_test.LegacyPageTest):
     timeline_data = tab.browser.platform.tracing_controller.StopTracing()
     timeline_model = model.TimelineModel(timeline_data)
 
-    pt_avg = self.ComputeAverageOfDurations(
+    draw_frame_avg = self.ComputeAverageOfDurations(
         timeline_model,
-        'LayerTreeHostCommon::ComputeVisibleRectsWithPropertyTrees')
+        'DirectRenderer::DrawFrame')
 
     results.AddValue(scalar.ScalarValue(
-        results.current_page, 'PT_avg_cost', 'ms', pt_avg,
-        description='Average time spent processing property trees'))
+        results.current_page, 'DF_avg_cost', 'us', draw_frame_avg,
+        description='Average time spent drawing frame'))
+
+    draw_render_pass_avg = self.ComputeAverageOfDurations(
+        timeline_model,
+        'DirectRenderer::DrawRenderPass')
+
+    results.AddValue(scalar.ScalarValue(
+        results.current_page, 'DRP_avg_cost', 'us', draw_render_pass_avg,
+        description='Average time spent drawing render pass'))
+
+    draw_quad_avg = self.ComputeAverageOfDurations(
+        timeline_model,
+        'SkiaRenderer::DoDrawQuad')
+
+    results.AddValue(scalar.ScalarValue(
+        results.current_page, 'DQ_avg_cost', 'us', draw_quad_avg,
+        description='Average time spent drawing quad'))
+
 
   def DidRunPage(self, platform):
     tracing_controller = platform.tracing_controller

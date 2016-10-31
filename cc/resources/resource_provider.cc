@@ -1227,7 +1227,6 @@ ResourceProvider::ScopedReadLockSkImage::ScopedReadLockSkImage(
     texture_info.fID = resource->gl_id;
     texture_info.fTarget = resource->target;
     GrBackendTextureDesc desc;
-    desc.fFlags = kRenderTarget_GrBackendTextureFlag;
     desc.fWidth = resource->size.width();
     desc.fHeight = resource->size.height();
     desc.fConfig = ToGrPixelConfig(resource->format);
@@ -1243,13 +1242,7 @@ ResourceProvider::ScopedReadLockSkImage::ScopedReadLockSkImage(
     sk_bitmap.setImmutable();
     sk_image_ = SkImage::MakeFromBitmap(sk_bitmap);
   } else {
-    // During render process shutdown, ~RenderMessageFilter which calls
-    // ~HostSharedBitmapClient (which deletes shared bitmaps from child)
-    // can race with OnBeginFrameDeadline which draws a frame.
-    // In these cases, shared bitmaps (and this read lock) won't be valid.
-    // Renderers need to silently handle locks failing until this race
-    // is fixed.  DCHECK that this is the only case where there are no pixels.
-    DCHECK(!resource->shared_bitmap_id.IsZero());
+    NOTREACHED() << "Image not valid";
   }
 }
 

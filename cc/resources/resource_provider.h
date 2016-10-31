@@ -230,7 +230,7 @@ class CC_EXPORT ResourceProvider
     const gfx::Size& size() const { return size_; }
     const gfx::ColorSpace& color_space() const { return color_space_; }
 
-   private:
+   protected:
     ResourceProvider* resource_provider_;
     ResourceId resource_id_;
     unsigned texture_id_;
@@ -238,6 +238,7 @@ class CC_EXPORT ResourceProvider
     gfx::Size size_;
     gfx::ColorSpace color_space_;
 
+   private:
     DISALLOW_COPY_AND_ASSIGN(ScopedReadLockGL);
   };
 

@@ -12,7 +12,6 @@
 #include "cc/output/output_surface_frame.h"
 #include "cc/output/render_surface_filters.h"
 #include "cc/output/renderer_settings.h"
-#include "cc/output/software_output_device.h"
 #include "cc/quads/debug_border_draw_quad.h"
 #include "cc/quads/picture_draw_quad.h"
 #include "cc/quads/render_pass_draw_quad.h"
@@ -62,7 +61,8 @@ SkiaRenderer::SkiaRenderer(const RendererSettings* settings,
 SkiaRenderer::~SkiaRenderer() {}
 
 bool SkiaRenderer::CanPartialSwap() {
-  return true;
+  auto* context_provider = output_surface_->context_provider();
+  return context_provider->ContextCapabilities().post_sub_buffer;
 }
 
 void SkiaRenderer::BeginDrawingFrame(DrawingFrame* frame) {
@@ -118,6 +118,8 @@ void SkiaRenderer::FinishDrawingFrame(DrawingFrame* frame) {
   current_framebuffer_surface_lock_ = nullptr;
   current_framebuffer_lock_ = nullptr;
   current_canvas_ = nullptr;
+
+  swap_buffer_rect_ = frame->root_damage_rect;
 }
 
 void SkiaRenderer::SwapBuffers(std::vector<ui::LatencyInfo> latency_info) {
@@ -125,7 +127,18 @@ void SkiaRenderer::SwapBuffers(std::vector<ui::LatencyInfo> latency_info) {
   TRACE_EVENT0("cc,benchmark", "SkiaRenderer::SwapBuffers");
   OutputSurfaceFrame output_frame;
   output_frame.latency_info = std::move(latency_info);
+  output_frame.size = surface_size_for_swap_buffers();
+  if (use_partial_swap_) {
+    swap_buffer_rect_.Intersect(gfx::Rect(surface_size_for_swap_buffers()));
+  } else {
+    if (!swap_buffer_rect_.IsEmpty() || !allow_empty_swap_)
+      swap_buffer_rect_ = gfx::Rect(surface_size_for_swap_buffers());
+  }
+
+  output_frame.sub_buffer_rect = swap_buffer_rect_;
   output_surface_->SwapBuffers(std::move(output_frame));
+
+  swap_buffer_rect_ = gfx::Rect();
 }
 
 bool SkiaRenderer::FlippedFramebuffer(const DrawingFrame* frame) const {

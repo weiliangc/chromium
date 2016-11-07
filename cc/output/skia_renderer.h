@@ -16,7 +16,6 @@ class OutputSurface;
 class PictureDrawQuad;
 class RenderPassDrawQuad;
 class ResourceProvider;
-class SoftwareOutputDevice;
 class SolidColorDrawQuad;
 class TextureDrawQuad;
 class TileDrawQuad;
@@ -102,6 +101,8 @@ class CC_EXPORT SkiaRenderer : public DirectRenderer {
       current_framebuffer_lock_;
   std::unique_ptr<ResourceProvider::ScopedSkSurfaceProvider>
       current_framebuffer_surface_lock_;
+
+  gfx::Rect swap_buffer_rect_;
 
   DISALLOW_COPY_AND_ASSIGN(SkiaRenderer);
 };

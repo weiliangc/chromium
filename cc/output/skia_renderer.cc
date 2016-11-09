@@ -166,32 +166,33 @@ void SkiaRenderer::BindFramebufferToOutputSurface(DrawingFrame* frame) {
   DCHECK(!output_surface_->HasExternalStencilTest());
   current_framebuffer_lock_ = nullptr;
 
-  // TODO(enne): Probably don't need to recreate this every frame?
-  GrBackendRenderTargetDesc desc;
-  desc.fWidth = frame->device_viewport_size.width();
-  desc.fHeight = frame->device_viewport_size.height();
-  desc.fConfig = kRGBA_8888_GrPixelConfig;
-  desc.fOrigin = kBottomLeft_GrSurfaceOrigin;
-  desc.fSampleCnt = 1;
-  desc.fStencilBits = 8;
-  desc.fRenderTargetHandle = 0;
+  // TODO(weiliangc): Set up correct can_use_lcd_text and
+  // use_distance_field_text for SkSurfaceProps flags. How to setup is in
+  // ResourceProvicer.
 
   GrContext* gr_context = output_surface_->context_provider()->GrContext();
+  if (!root_canvas_ ||
+      root_canvas_->getGrContext() != gr_context ||
+      gfx::SkISizeToSize(root_canvas_->getBaseLayerSize()) != frame->device_viewport_size) {
+    // Either no SkSurface setup yet, or new GrContext, need to create new
+    // surface.
+    GrBackendRenderTargetDesc desc;
+    desc.fWidth = frame->device_viewport_size.width();
+    desc.fHeight = frame->device_viewport_size.height();
+    desc.fConfig = kRGBA_8888_GrPixelConfig;
+    desc.fOrigin = kBottomLeft_GrSurfaceOrigin;
+    desc.fSampleCnt = 1;
+    desc.fStencilBits = 8;
+    desc.fRenderTargetHandle = 0;
 
-  // Copypasta from resource_provider
-  // Use unknown pixel geometry to disable LCD text.
-  bool use_distance_field_text = false;
-  bool can_use_lcd_text = true;
-  uint32_t flags =
-      use_distance_field_text ? SkSurfaceProps::kUseDistanceFieldFonts_Flag : 0;
-  SkSurfaceProps surface_props(flags, kUnknown_SkPixelGeometry);
-  if (can_use_lcd_text) {
+    // This is for use_distance_field_text false, and can_use_lcd_text true.
     // LegacyFontHost will get LCD text and skia figures out what type to use.
-    surface_props =
-        SkSurfaceProps(flags, SkSurfaceProps::kLegacyFontHost_InitType);
+    SkSurfaceProps surface_props =
+        SkSurfaceProps(0, SkSurfaceProps::kLegacyFontHost_InitType);
+    root_surface_ =
+        SkSurface::MakeFromBackendRenderTarget(gr_context, desc, &surface_props);
   }
-  root_surface_ =
-      SkSurface::MakeFromBackendRenderTarget(gr_context, desc, &surface_props);
+
   root_canvas_ = root_surface_->getCanvas();
 
   current_canvas_ = root_canvas_;

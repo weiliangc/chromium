@@ -14,6 +14,7 @@
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "gpu/skia_bindings/gl_bindings_skia_cmd_buffer.h"
 #include "third_party/skia/include/gpu/GrContext.h"
+#include "third_party/skia/include/gpu/GrContextOptions.h"
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
 
 namespace skia_bindings {
@@ -22,10 +23,13 @@ GrContextForGLES2Interface::GrContextForGLES2Interface(
     gpu::gles2::GLES2Interface* gl) {
   sk_sp<GrGLInterface> interface(
       skia_bindings::CreateGLES2InterfaceBindings(gl));
-  gr_context_ = sk_sp<GrContext>(
-      GrContext::Create(kOpenGL_GrBackend,
-                        // GrContext takes ownership of |interface|.
-                        reinterpret_cast<GrBackendContext>(interface.get())));
+  GrContextOptions gr_context_options;
+  gr_context_options.fMaxBatchLookback = 0;
+  gr_context_options.fMaxBatchLookahead = 0;
+  gr_context_ = sk_sp<GrContext>(GrContext::Create(
+      kOpenGL_GrBackend,
+      // GrContext takes ownership of |interface|.
+      reinterpret_cast<GrBackendContext>(interface.get()), gr_context_options));
   if (gr_context_) {
     // The limit of the number of GPU resources we hold in the GrContext's
     // GPU cache.

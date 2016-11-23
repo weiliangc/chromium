@@ -688,6 +688,7 @@ class CC_EXPORT ResourceProvider
   int highp_threshold_min_;
   ResourceId next_id_;
   ResourceMap resources_;
+  std::unordered_map<ResourceId, sk_sp<SkImage>> resource_sk_image;
   int next_child_;
   ChildMap children_;
 

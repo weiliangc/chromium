@@ -482,6 +482,7 @@ ResourceProvider::~ResourceProvider() {
 
   while (!children_.empty())
     DestroyChildInternal(children_.begin(), FOR_SHUTDOWN);
+  resource_sk_image.clear();
   while (!resources_.empty())
     DeleteResourceInternal(resources_.begin(), FOR_SHUTDOWN);
 
@@ -704,6 +705,7 @@ void ResourceProvider::DeleteResource(ResourceId id) {
   ResourceMap::iterator it = resources_.find(id);
   CHECK(it != resources_.end());
   Resource* resource = &it->second;
+  resource_sk_image.erase(id);
   DCHECK(!resource->marked_for_deletion);
   DCHECK_EQ(resource->imported_count, 0);
   DCHECK(!resource->locked_for_write);
@@ -1222,27 +1224,38 @@ ResourceProvider::ScopedReadLockSkImage::ScopedReadLockSkImage(
     ResourceId resource_id)
     : resource_provider_(resource_provider), resource_id_(resource_id) {
   const Resource* resource = resource_provider->LockForRead(resource_id);
-  if (resource->gl_id) {
-    GrGLTextureInfo texture_info;
-    texture_info.fID = resource->gl_id;
-    texture_info.fTarget = resource->target;
-    GrBackendTextureDesc desc;
-    desc.fWidth = resource->size.width();
-    desc.fHeight = resource->size.height();
-    desc.fConfig = ToGrPixelConfig(resource->format);
-    desc.fOrigin = kTopLeft_GrSurfaceOrigin;
-    desc.fTextureHandle = skia::GrGLTextureInfoToGrBackendObject(texture_info);
-    sk_image_ = SkImage::MakeFromTexture(
-        resource_provider->compositor_context_provider_->GrContext(), desc,
-        kPremul_SkAlphaType,
-        resource_provider->GetResourceSkColorSpace(resource), nullptr, nullptr);
-  } else if (resource->pixels) {
-    SkBitmap sk_bitmap;
-    resource_provider->PopulateSkBitmapWithResource(&sk_bitmap, resource);
-    sk_bitmap.setImmutable();
-    sk_image_ = SkImage::MakeFromBitmap(sk_bitmap);
+  if (resource_provider_->resource_sk_image.find(resource_id) ==
+      resource_provider_->resource_sk_image.end()) {
+    if (resource->gl_id) {
+      GrGLTextureInfo texture_info;
+      texture_info.fID = resource->gl_id;
+      texture_info.fTarget = resource->target;
+      GrBackendTextureDesc desc;
+      desc.fWidth = resource->size.width();
+      desc.fHeight = resource->size.height();
+      desc.fConfig = ToGrPixelConfig(resource->format);
+      desc.fOrigin = kTopLeft_GrSurfaceOrigin;
+      desc.fTextureHandle =
+          skia::GrGLTextureInfoToGrBackendObject(texture_info);
+      sk_image_ = SkImage::MakeFromTexture(
+          resource_provider->compositor_context_provider_->GrContext(), desc,
+          kPremul_SkAlphaType,
+          resource_provider->GetResourceSkColorSpace(resource), nullptr,
+          nullptr);
+      resource_provider_->resource_sk_image.insert(
+          std::make_pair(resource_id, sk_image_));
+    } else if (resource->pixels) {
+      SkBitmap sk_bitmap;
+      resource_provider->PopulateSkBitmapWithResource(&sk_bitmap, resource);
+      sk_bitmap.setImmutable();
+      sk_image_ = SkImage::MakeFromBitmap(sk_bitmap);
+      resource_provider_->resource_sk_image.insert(
+          std::make_pair(resource_id, sk_image_));
+    } else {
+      NOTREACHED() << "Image not valid";
+    }
   } else {
-    NOTREACHED() << "Image not valid";
+    sk_image_ = resource_provider_->resource_sk_image.find(resource_id)->second;
   }
 }
 

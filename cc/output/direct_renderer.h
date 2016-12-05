@@ -19,6 +19,7 @@
 #include "ui/events/latency_info.h"
 #include "ui/gfx/geometry/quad_f.h"
 #include "ui/gfx/geometry/rect.h"
+#include "third_party/skia/include/core/SkRSXform.h"
 
 namespace gfx {
 class ColorSpace;
@@ -85,6 +86,10 @@ class CC_EXPORT DirectRenderer {
 
     gfx::Transform projection_matrix;
     gfx::Transform window_matrix;
+
+    std::vector<SkRSXform>* current_quad_transforms;
+    std::vector<SkRect>* current_quad_rects;
+    sk_sp<SkImage> current_image;
 
     OverlayCandidateList overlay_list;
     CALayerOverlayList ca_layer_overlay_list;
@@ -160,7 +165,7 @@ class CC_EXPORT DirectRenderer {
   // a render pass (e.g. applying a filter directly to the tile quad)
   // return that quad, otherwise return null.
   virtual const TileDrawQuad* CanPassBeDrawnDirectly(const RenderPass* pass);
-  virtual void FinishDrawingQuadList() {}
+  virtual void FinishDrawingQuadList(DrawingFrame* frame) {}
   virtual bool FlippedFramebuffer(const DrawingFrame* frame) const = 0;
   virtual void EnsureScissorTestEnabled() = 0;
   virtual void EnsureScissorTestDisabled() = 0;

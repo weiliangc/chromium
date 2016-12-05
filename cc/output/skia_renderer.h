@@ -55,7 +55,7 @@ class CC_EXPORT SkiaRenderer : public DirectRenderer {
       DrawingFrame* frame,
       std::unique_ptr<CopyOutputRequest> request) override;
   void DidChangeVisibility() override;
-  void FinishDrawingQuadList() override;
+  void FinishDrawingQuadList(DrawingFrame* frame) override;
 
  private:
   void ClearCanvas(SkColor color);
@@ -71,7 +71,7 @@ class CC_EXPORT SkiaRenderer : public DirectRenderer {
   void DrawSolidColorQuad(const DrawingFrame* frame,
                           const SolidColorDrawQuad* quad);
   void DrawTextureQuad(const DrawingFrame* frame, const TextureDrawQuad* quad);
-  void DrawTileQuad(const DrawingFrame* frame, const TileDrawQuad* quad);
+  void DrawTileQuad(DrawingFrame* frame, const TileDrawQuad* quad);
   void DrawUnsupportedQuad(const DrawingFrame* frame, const DrawQuad* quad);
   bool ShouldApplyBackgroundFilters(const RenderPassDrawQuad* quad) const;
   sk_sp<SkImage> ApplyImageFilter(SkImageFilter* filter,

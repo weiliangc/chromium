@@ -108,7 +108,7 @@ class CC_EXPORT GLRenderer : public DirectRenderer {
   void CopyCurrentRenderPassToBitmap(
       DrawingFrame* frame,
       std::unique_ptr<CopyOutputRequest> request) override;
-  void FinishDrawingQuadList() override;
+  void FinishDrawingQuadList(DrawingFrame* frame) override;
 
   // Returns true if quad requires antialiasing and false otherwise.
   static bool ShouldAntialiasQuad(const gfx::QuadF& device_layer_quad,

@@ -493,6 +493,11 @@ void DirectRenderer::DrawRenderPass(DrawingFrame* frame,
   const QuadList& quad_list = render_pass->quad_list;
   std::deque<std::unique_ptr<DrawPolygon>> poly_list;
 
+  std::vector<SkRSXform> quad_transforms;
+  std::vector<SkRect> quad_rects;
+  frame->current_quad_transforms = &quad_transforms;
+  frame->current_quad_rects = &quad_rects;
+
   int next_polygon_id = 0;
   int last_sorting_context_id = 0;
   for (auto it = quad_list.BackToFrontBegin(); it != quad_list.BackToFrontEnd();
@@ -530,7 +535,7 @@ void DirectRenderer::DrawRenderPass(DrawingFrame* frame,
   }
   FlushPolygons(&poly_list, frame, render_pass_scissor_in_draw_space,
                 render_pass_is_clipped);
-  FinishDrawingQuadList();
+  FinishDrawingQuadList(frame);
 }
 
 bool DirectRenderer::UseRenderPass(DrawingFrame* frame,

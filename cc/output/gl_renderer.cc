@@ -2762,7 +2762,7 @@ void GLRenderer::FinishDrawingFrame(DrawingFrame* frame) {
   ScheduleOverlays(frame);
 }
 
-void GLRenderer::FinishDrawingQuadList() {
+void GLRenderer::FinishDrawingQuadList(DrawingFrame* frame) {
   FlushTextureQuadCache(SHARED_BINDING);
 }
 

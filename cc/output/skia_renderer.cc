@@ -271,6 +271,18 @@ void SkiaRenderer::PrepareSurfaceForPass(
       ClearFramebuffer(frame);
       break;
   }
+
+  // TODO(weiliangc): Errr move some matrix setting for canvas from DoDrawQuad to here because won't want to do that to each quad which is probably so very wrong.
+  if (current_canvas_) {
+    gfx::Transform contents_device_transform =
+      frame->window_matrix * frame->projection_matrix;
+    contents_device_transform.FlattenTo2d();
+    SkMatrix sk_device_matrix;
+    gfx::TransformToFlattenedSkMatrix(contents_device_transform,
+                                      &sk_device_matrix);
+    current_canvas_->setMatrix(sk_device_matrix);
+  }
+
 }
 
 // TODO(enne): doot dee doo
@@ -301,13 +313,10 @@ void SkiaRenderer::DoDrawQuad(DrawingFrame* frame,
   QuadRectTransform(&quad_rect_matrix,
                     quad->shared_quad_state->quad_to_target_transform,
                     gfx::RectF(quad->rect));
-  gfx::Transform contents_device_transform =
-      frame->window_matrix * frame->projection_matrix * quad_rect_matrix;
-  contents_device_transform.FlattenTo2d();
+  quad_rect_matrix.FlattenTo2d();
   SkMatrix sk_device_matrix;
-  gfx::TransformToFlattenedSkMatrix(contents_device_transform,
+  gfx::TransformToFlattenedSkMatrix(quad_rect_matrix,
                                     &sk_device_matrix);
-  current_canvas_->setMatrix(sk_device_matrix);
 
   current_paint_.reset();
   if (settings_->force_antialiasing ||
@@ -381,7 +390,6 @@ void SkiaRenderer::DoDrawQuad(DrawingFrame* frame,
       break;
   }
 
-  current_canvas_->resetMatrix();
   if (draw_region) {
     current_canvas_->restore();
   }
@@ -508,7 +516,7 @@ void SkiaRenderer::DrawTextureQuad(const DrawingFrame* frame,
     current_canvas_->restore();
 }
 
-void SkiaRenderer::DrawTileQuad(const DrawingFrame* frame,
+void SkiaRenderer::DrawTileQuad(DrawingFrame* frame,
                                 const TileDrawQuad* quad) {
   // |resource_provider_| can be NULL in resourceless software draws, which
   // should never produce tile quads in the first place.
@@ -519,18 +527,25 @@ void SkiaRenderer::DrawTileQuad(const DrawingFrame* frame,
                                                quad->resource_id());
   if (!lock.sk_image())
     return;
-  gfx::RectF visible_tex_coord_rect = MathUtil::ScaleRectProportional(
-      quad->tex_coord_rect, gfx::RectF(quad->rect),
-      gfx::RectF(quad->visible_rect));
-  gfx::RectF visible_quad_vertex_rect = MathUtil::ScaleRectProportional(
-      QuadVertexRect(), gfx::RectF(quad->rect), gfx::RectF(quad->visible_rect));
 
-  SkRect uv_rect = gfx::RectFToSkRect(visible_tex_coord_rect);
-  current_paint_.setFilterQuality(
-      quad->nearest_neighbor ? kNone_SkFilterQuality : kLow_SkFilterQuality);
-  current_canvas_->drawImageRect(lock.sk_image(), uv_rect,
-                                 gfx::RectFToSkRect(visible_quad_vertex_rect),
-                                 &current_paint_);
+  frame->current_image = lock.copy_of_image();
+  // gfx::RectF visible_tex_coord_rect = MathUtil::ScaleRectProportional(
+  //     quad->tex_coord_rect, gfx::RectF(quad->rect),
+  //     gfx::RectF(quad->visible_rect));
+  // gfx::RectF visible_quad_vertex_rect = MathUtil::ScaleRectProportional(
+  //     QuadVertexRect(), gfx::RectF(quad->rect), gfx::RectF(quad->visible_rect));
+
+  SkRect uv_rect = gfx::RectFToSkRect(quad->tex_coord_rect);
+  frame->current_quad_rects->push_back(uv_rect);
+
+  float scale_x = quad->rect.width() / quad->visible_rect.width();
+  float scale_y = quad->rect.height() / quad->visible_rect.height();
+  frame->current_quad_transforms->push_back(SkRSXform::Make(1, 0, scale_x, scale_y));
+  // current_paint_.setFilterQuality(
+  //     quad->nearest_neighbor ? kNone_SkFilterQuality : kLow_SkFilterQuality);
+  // current_canvas_->drawImageRect(lock.sk_image(), uv_rect,
+  //                                gfx::RectFToSkRect(visible_quad_vertex_rect),
+  //                                &current_paint_);
 }
 
 void SkiaRenderer::DrawRenderPassQuad(const DrawingFrame* frame,
@@ -676,7 +691,13 @@ void SkiaRenderer::DidChangeVisibility() {
     output_surface_->DiscardBackbuffer();
 }
 
-void SkiaRenderer::FinishDrawingQuadList() {
+void SkiaRenderer::FinishDrawingQuadList(DrawingFrame* frame) {
+  current_canvas_->drawAtlas(frame->current_image.get(),
+                             frame->current_quad_transforms->data(),
+                             frame->current_quad_rects->data(), nullptr,
+                             frame->current_quad_rects->size(),
+                             SkBlendMode::kDst, nullptr, nullptr);
+  current_canvas_->resetMatrix();
   current_canvas_->flush();
 }
 

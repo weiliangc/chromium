@@ -370,7 +370,7 @@ class CC_EXPORT ResourceProvider
     ~ScopedReadLockSkImage();
 
     const SkImage* sk_image() const { return sk_image_.get(); }
-    sk_sp<SkImage> copy_of_image() const { return sk_image_; }
+    ResourceId resource_id() const { return resource_id_; }
 
     bool valid() const { return !!sk_image_; }
 

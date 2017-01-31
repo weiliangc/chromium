@@ -21,7 +21,6 @@
 #include "cc/resources/scoped_resource.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "skia/ext/opacity_filter_canvas.h"
-#include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkImageFilter.h"
 #include "third_party/skia/include/core/SkMatrix.h"
@@ -118,6 +117,7 @@ void SkiaRenderer::FinishDrawingFrame(DrawingFrame* frame) {
   current_framebuffer_surface_lock_ = nullptr;
   current_framebuffer_lock_ = nullptr;
   current_canvas_ = nullptr;
+  DCHECK(current_image_locks_.empty());
 
   swap_buffer_rect_ = frame->root_damage_rect;
 }
@@ -165,6 +165,7 @@ void SkiaRenderer::EnsureScissorTestDisabled() {
 void SkiaRenderer::BindFramebufferToOutputSurface(DrawingFrame* frame) {
   DCHECK(!output_surface_->HasExternalStencilTest());
   current_framebuffer_lock_ = nullptr;
+  DCHECK(current_image_locks_.empty());
 
   // TODO(weiliangc): Set up correct can_use_lcd_text and
   // use_distance_field_text for SkSurfaceProps flags. How to setup is in
@@ -201,6 +202,7 @@ void SkiaRenderer::BindFramebufferToOutputSurface(DrawingFrame* frame) {
 bool SkiaRenderer::BindFramebufferToTexture(DrawingFrame* frame,
                                             const ScopedResource* texture) {
   DCHECK(texture->id());
+  DCHECK(current_image_locks_.empty());
 
   // Explicitly release lock, otherwise we can crash when try to lock
   // same texture again.
@@ -309,6 +311,73 @@ void SkiaRenderer::DoDrawQuad(DrawingFrame* frame,
   }
 
   TRACE_EVENT0("cc", "SkiaRenderer::DoDrawQuad");
+  bool use_bulk_draw_api =
+    // false;
+    quad->material == DrawQuad::TILED_CONTENT && !draw_region
+    && current_canvas_ != root_canvas_;
+  if (use_bulk_draw_api) {
+    if (current_image_entries_.empty()) {
+      // First time set up for this batch of images. Set up matrix, and blend
+      // mode.
+      gfx::Transform contents_device_transform =
+        frame->window_matrix * frame->projection_matrix;
+      contents_device_transform.FlattenTo2d();
+      SkMatrix sk_device_matrix;
+      gfx::TransformToFlattenedSkMatrix(contents_device_transform,
+                                        &sk_device_matrix);
+      current_canvas_->setMatrix(sk_device_matrix);
+      current_blend_mode_ = SkBlendMode::kSrc;
+    }
+
+    if (quad->shared_quad_state != last_sqs_) {
+      DrawCollectedTextures();
+      last_sqs_ = quad->shared_quad_state;
+    }
+
+    SkBlendMode blend_mode = SkBlendMode::kSrc;
+    uint8_t alpha = 255;
+    if (quad->ShouldDrawWithBlending() ||
+        quad->shared_quad_state->blend_mode != SkXfermode::kSrcOver_Mode) {
+      alpha = quad->shared_quad_state->opacity * 255;
+      blend_mode =
+        static_cast<SkBlendMode>(quad->shared_quad_state->blend_mode);
+    }
+
+    if (blend_mode != current_blend_mode_ || alpha != current_alpha_) {
+      DrawCollectedTextures();
+      current_blend_mode_ = blend_mode;
+      current_alpha_ = alpha;
+    }
+
+    switch (quad->material) {
+      case DrawQuad::TILED_CONTENT:
+        CollectTileQuad(TileDrawQuad::MaterialCast(quad));
+        break;
+      case DrawQuad::DEBUG_BORDER:
+      case DrawQuad::PICTURE_CONTENT:
+      case DrawQuad::RENDER_PASS:
+      case DrawQuad::SOLID_COLOR:
+      case DrawQuad::TEXTURE_CONTENT:
+      case DrawQuad::SURFACE_CONTENT:
+      case DrawQuad::INVALID:
+      case DrawQuad::YUV_VIDEO_CONTENT:
+      case DrawQuad::STREAM_VIDEO_CONTENT:
+        // use_bulk_api doesn't support these types of quads, they should pass
+        // per quad path.
+        NOTREACHED();
+        break;
+    }
+
+    return;
+  }
+
+  if (!current_image_entries_.empty()) {
+      // Still collected image left, need to submit them before returning to per
+      // quad path.
+      DrawCollectedTextures();
+      current_canvas_->resetMatrix();
+  }
+
   gfx::Transform quad_rect_matrix;
   QuadRectTransform(&quad_rect_matrix,
                     quad->shared_quad_state->quad_to_target_transform,
@@ -548,6 +617,81 @@ void SkiaRenderer::DrawTileQuad(DrawingFrame* frame,
   //                                &current_paint_);
 }
 
+void SkiaRenderer::CollectTileQuad(const TileDrawQuad* quad) {
+  // |resource_provider_| can be NULL in resourceless software draws, which
+  // should never produce tile quads in the first place.
+  DCHECK(resource_provider_);
+  DCHECK(IsSoftwareResource(quad->resource_id()));
+
+  // Set up lock to hold SkImage.
+  // std::unique_ptr<ResourceProvider::ScopedReadLockSkImage> temp_lock(new ResourceProvider::ScopedReadLockSkImage(resource_provider_, quad->resource_id()));
+  // ResourceProvider::ScopedReadLockSkImage tmp_lock(resource_provider_,
+  //                                              quad->resource_id());
+  // current_image_locks_.push_back(std::move(tmp_lock));
+  // current_image_locks_.push_back(std::move(temp_lock));
+  current_image_locks_.emplace_back(resource_provider_, quad->resource_id());
+  ResourceProvider::ScopedReadLockSkImage* lock = &current_image_locks_.back();
+  if (!lock->sk_image()) {
+    current_image_locks_.pop_back();
+    return;
+  }
+
+  // Set up AA.
+  uint32_t aa_flags = 0;
+  if (settings_->force_antialiasing && settings_->allow_antialiasing) {
+    if (quad->IsLeftEdge())
+      aa_flags |= SkCanvas::ImageSetEntry::AAFlags::kLeft_AAFlag;
+    if (quad->IsRightEdge())
+      aa_flags |= SkCanvas::ImageSetEntry::AAFlags::kRight_AAFlag;
+    if (quad->IsTopEdge())
+      aa_flags |= SkCanvas::ImageSetEntry::AAFlags::kTop_AAFlag;
+    if (quad->IsBottomEdge())
+      aa_flags |= SkCanvas::ImageSetEntry::AAFlags::kBottom_AAFlag;
+  }
+
+  // Set up matrix.
+  gfx::Transform quad_rect_matrix;
+  QuadRectTransform(&quad_rect_matrix,
+                    quad->shared_quad_state->quad_to_target_transform,
+                    gfx::RectF(quad->rect));
+  SkMatrix sk_quad_matrix;
+  gfx::TransformToFlattenedSkMatrix(quad_rect_matrix,
+                                    &sk_quad_matrix);
+
+  // Set up rects.
+  gfx::RectF visible_tex_coord_rect = MathUtil::ScaleRectProportional(
+      quad->tex_coord_rect, gfx::RectF(quad->rect),
+      gfx::RectF(quad->visible_rect));
+  gfx::RectF visible_quad_vertex_rect = MathUtil::ScaleRectProportional(
+      QuadVertexRect(), gfx::RectF(quad->rect), gfx::RectF(quad->visible_rect));
+
+  SkCanvas::ImageSetEntry image_entry;
+  image_entry.fImage = lock->sk_image();
+  image_entry.fMatrix = sk_quad_matrix;
+  image_entry.fSrcRect = gfx::RectFToSkRect(visible_tex_coord_rect);
+  image_entry.fDstRect = gfx::RectFToSkRect(visible_quad_vertex_rect);
+  image_entry.fAAFlags = aa_flags;
+  current_image_entries_.push_back(image_entry);
+
+  // DrawCollectedTextures();
+  // TODO(weiliangc): Ignore filter quality for now.
+  // current_paint_.setFilterQuality(
+  //     quad->nearest_neighbor ? kNone_SkFilterQuality : kLow_SkFilterQuality);
+}
+
+void SkiaRenderer::DrawCollectedTextures() {
+  DCHECK_EQ(current_image_entries_.size(), current_image_locks_.size());
+  if (current_image_entries_.empty())
+    return;
+
+  current_canvas_->experimentalDrawImageSet(
+    current_image_entries_.data(), current_image_entries_.size(),
+    current_blend_mode_, current_alpha_);
+
+  current_image_entries_.clear();
+  current_image_locks_.clear();
+}
+
 void SkiaRenderer::DrawRenderPassQuad(const DrawingFrame* frame,
                                       const RenderPassDrawQuad* quad) {
 #if 0
@@ -691,13 +835,8 @@ void SkiaRenderer::DidChangeVisibility() {
     output_surface_->DiscardBackbuffer();
 }
 
-void SkiaRenderer::FinishDrawingQuadList(DrawingFrame* frame) {
-  current_canvas_->drawAtlas(frame->current_image.get(),
-                             frame->current_quad_transforms->data(),
-                             frame->current_quad_rects->data(), nullptr,
-                             frame->current_quad_rects->size(),
-                             SkBlendMode::kDst, nullptr, nullptr);
-  current_canvas_->resetMatrix();
+void SkiaRenderer::FinishDrawingQuadList() {
+  DrawCollectedTextures();
   current_canvas_->flush();
 }
 

@@ -5,9 +5,12 @@
 #ifndef CC_OUTPUT_SKIA_RENDERER_H_
 #define CC_OUTPUT_SKIA_RENDERER_H_
 
+#include <list>
+
 #include "base/macros.h"
 #include "cc/base/cc_export.h"
 #include "cc/output/direct_renderer.h"
+#include "third_party/skia/include/core/SkCanvas.h"
 #include "ui/events/latency_info.h"
 
 namespace cc {
@@ -88,6 +91,9 @@ class CC_EXPORT SkiaRenderer : public DirectRenderer {
       const RenderPassDrawQuad* quad,
       SkShader::TileMode content_tile_mode) const;
 
+  void CollectTileQuad(const TileDrawQuad* quad);
+  void DrawCollectedTextures();
+
   bool disable_picture_quad_image_filtering_ = false;
 
   bool is_scissor_enabled_ = false;
@@ -97,6 +103,14 @@ class CC_EXPORT SkiaRenderer : public DirectRenderer {
   SkCanvas* root_canvas_ = nullptr;
   SkCanvas* current_canvas_ = nullptr;
   SkPaint current_paint_;
+
+  SkBlendMode current_blend_mode_;
+  uint8_t current_alpha_;
+  std::list<ResourceProvider::ScopedReadLockSkImage> current_image_locks_;
+  std::vector<SkCanvas::ImageSetEntry> current_image_entries_;
+
+  const SharedQuadState* last_sqs_;
+
   std::unique_ptr<ResourceProvider::ScopedWriteLockGL>
       current_framebuffer_lock_;
   std::unique_ptr<ResourceProvider::ScopedSkSurfaceProvider>
